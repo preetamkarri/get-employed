@@ -1,6 +1,7 @@
 {
   "name": "get-employed",
   "version": "0.1.0",
+  "description": "Autonomous AI job application console powered by Gemini AI, Firecrawl, Apify & Apollo — matches resume to live 24h job listings, validates active postings & drafts cold outreach.",
   "private": true,
   "scripts": {
     "dev": "next dev",
