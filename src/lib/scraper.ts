@@ -128,21 +128,16 @@ export async function searchJobsWithApify(
 
   try {
     // Call the Apify Google Jobs Scraper actor run endpoint
-    // Actor: apify/google-jobs-scraper
+    // Actor: orgupdate~google-jobs-scraper
     let searchQuery = location ? `${query} in ${location}` : query;
-    if (publishedWithin24h) {
-      searchQuery += ' past 24 hours';
-    }
 
-    const response = await fetch(`https://api.apify.com/v2/acts/apify~google-jobs-scraper/runs?token=${token}`, {
+    const response = await fetch(`https://api.apify.com/v2/acts/orgupdate~google-jobs-scraper/runs?token=${token}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         queries: [searchQuery],
-        maxPagesPerQuery: Math.ceil(limit / 10),
-        csvFriendlyOutput: false,
       }),
     });
 
@@ -154,13 +149,13 @@ export async function searchJobsWithApify(
     const runId = runJson.data.id;
     const defaultDatasetId = runJson.data.defaultDatasetId;
 
-    // Poll the run status until finished or max 40 seconds
+    // Poll the run status until finished or max 30 seconds
     let isFinished = false;
     let attempts = 0;
-    const maxAttempts = 12;
+    const maxAttempts = 15; // 15 * 2 seconds = 30 seconds
 
     while (!isFinished && attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       attempts++;
 
       const checkResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${token}`);
@@ -180,30 +175,45 @@ export async function searchJobsWithApify(
     }
 
     // Fetch dataset results
-    const datasetResponse = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${token}&limit=${limit * 2}`);
+    const datasetResponse = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${token}&limit=${limit * 3}`);
     if (!datasetResponse.ok) {
       throw new Error(`Failed to fetch Apify dataset items: ${datasetResponse.status}`);
     }
 
     let items = await datasetResponse.json();
 
-    // If 24h filter requested, filter items where postedAt indicates recent posting
+    // Standardize item properties
+    items = items.map((item: any) => ({
+      title: item.job_title || item.title || item.position || query,
+      company: item.company_name || item.companyName || item.company || 'Unknown Company',
+      location: item.location || item.job_location || location || 'Remote',
+      salary: item.salary || 'Not specified',
+      url: item.URL || item.url || item.applyLink || '',
+      description: item.description || item.snippet || 'No description provided.',
+      datePosted: item.date || item.postedAt || item.posted_at || new Date().toISOString(),
+    }));
+
+    // Filter by freshness if 24h requested
     if (publishedWithin24h && Array.isArray(items)) {
-      items = items.filter((item: any) => {
-        const posted = (item.postedAt || item.postedTime || item.posted_at || '').toLowerCase();
-        if (!posted) return true; // Keep if no post date specified
-        if (posted.includes('day') && !posted.includes('1 day') && !posted.includes('24 hour')) {
-          // If e.g. "3 days ago", "a week ago", filter out
+      const recent = items.filter((item: any) => {
+        const posted = (item.datePosted || '').toLowerCase();
+        if (!posted) return true;
+        if (posted.includes('day') && !posted.includes('1 day') && !posted.includes('24 hour') && !posted.includes('today')) {
           const dayMatch = posted.match(/(\d+)\s+day/);
           if (dayMatch && parseInt(dayMatch[1], 10) > 1) {
             return false;
           }
         }
-        if (posted.includes('month') || posted.includes('year') || posted.includes('week')) {
+        if (posted.includes('week') || posted.includes('month') || posted.includes('year')) {
           return false;
         }
         return true;
       });
+
+      // If strict 24h filter returns items, use them; otherwise fallback to top fresh items
+      if (recent.length > 0) {
+        items = recent;
+      }
     }
 
     return items.slice(0, limit);

@@ -73,23 +73,19 @@ export async function POST(req: NextRequest) {
         );
 
         for (const item of rawItems) {
-          const jobUrl = item.applyLink || item.url || item.googleJobsLink || '';
-
-          // Deduplicate based on URL or title+company
-          if (
-            jobUrl &&
-            db.jobs.some(
-              (j) => j.url === jobUrl || (j.title.toLowerCase() === (item.title || '').toLowerCase() && j.company.toLowerCase() === (item.companyName || item.company || '').toLowerCase())
-            )
-          ) {
-            continue;
-          }
-
           const title = item.title || titleQuery;
-          const company = item.companyName || item.company || 'Unknown Company';
+          const company = item.company || item.companyName || 'Unknown Company';
           const location = item.location || country || 'Remote';
-          const description = item.description || item.descriptionSnippet || 'No description available.';
-          const datePosted = item.postedAt || new Date().toISOString();
+          const description = item.description || 'No description available.';
+          const jobUrl = item.url || item.applyLink || '';
+          const datePosted = item.datePosted || item.postedAt || new Date().toISOString();
+
+          // Deduplicate based on URL or title + company
+          const isDuplicate = db.jobs.some((j) => 
+            (jobUrl && j.url === jobUrl) ||
+            (j.title.toLowerCase() === title.toLowerCase() && j.company.toLowerCase() === company.toLowerCase())
+          );
+          if (isDuplicate) continue;
 
           // Auto-calculate AI match score with CV
           let matchScore = 0;
