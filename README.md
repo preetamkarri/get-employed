@@ -2,8 +2,7 @@
 
 **GetEmployed** is an intelligent, automated job search and outreach platform designed to streamline your career search. Powered by **Google Gemini AI**, **Firecrawl**, **Apify**, and **Apollo.io**, the platform reads your resume, identifies target job roles and locations, scans live job postings from the last 24 hours, scores match alignment, finds hiring contacts, and drafts custom cold outreach messages.
 
-> [!NOTE]
-> **Live Web App**: Will be available to the public soon! Access here ➔ [https://getemployedd.netlify.app/](https://getemployedd.netlify.app/)
+👉 **Access live app here**: [https://getemployedd.netlify.app/](https://getemployedd.netlify.app/)
 
 ---
 
@@ -119,42 +118,4 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 ### Step 4: Contact Lookup & Cold Outreach
 - In the Job Drawer, click **Hiring Contacts** to run an **Apollo.io** search for recruiters or managers at that company.
 - Click **Outreach Scripts** to generate a personalized Cover Letter, Cold Email, and LinkedIn message.
-
----
-
-## 📁 Repository Structure
-
-```
-get-employed/
-├── public/                # Static assets
-├── src/
-│   ├── app/
-│   │   ├── api/           # Next.js Serverless API routes
-│   │   │   ├── ai-match/       # AI resume match analysis
-│   │   │   ├── ai-outreach/    # Outreach script generation
-│   │   │   ├── apollo/         # Contact search API
-│   │   │   ├── jobs/           # Job CRUD operations
-│   │   │   ├── profile/        # Resume upload & preferences API
-│   │   │   ├── scrape/         # URL page scraper
-│   │   │   └── smart-search/   # AI 24h job discovery endpoint
-│   │   ├── globals.css    # Modern Dark/Glassmorphism CSS Design System
-│   │   ├── layout.tsx     # Main application layout
-│   │   └── page.tsx       # Main dashboard & tab controller
-│   └── lib/
-│       ├── db.ts          # Local JSON database interface
-│       ├── gemini.ts      # Gemini AI integration & prompts
-│       ├── pdfParser.ts   # Gemini-powered PDF text parser
-│       └── scraper.ts     # Apify & Firecrawl job scraping functions
-├── .env.example           # Template for environment variables
-├── jobs_db.json           # Local database storage file
-├── LICENSE                # MIT License file
-├── package.json           # Dependencies and scripts
-└── README.md              # Project documentation
-```
-
----
-
-## 🛡️ License
-
-This project is open-source and available under the [MIT License](LICENSE).
 
