@@ -2,6 +2,9 @@
 
 **GetEmployed** is an intelligent, automated job search and outreach platform designed to streamline your career search. Powered by **Google Gemini AI**, **Firecrawl**, **Apify**, and **Apollo.io**, the platform reads your resume, identifies target job roles and locations, scans live job postings from the last 24 hours, scores match alignment, finds hiring contacts, and drafts custom cold outreach messages.
 
+> [!NOTE]
+> **Live Web App**: Will be available to the public soon! Access here ➔ [https://getemployedd.netlify.app/](https://getemployedd.netlify.app/)
+
 ---
 
 ## 🌟 Key Features
@@ -144,6 +147,7 @@ get-employed/
 │       └── scraper.ts     # Apify & Firecrawl job scraping functions
 ├── .env.example           # Template for environment variables
 ├── jobs_db.json           # Local database storage file
+├── LICENSE                # MIT License file
 ├── package.json           # Dependencies and scripts
 └── README.md              # Project documentation
 ```

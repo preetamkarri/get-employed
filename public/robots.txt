@@ -1,0 +1,25 @@
+# Block all search engine crawlers and robots
+User-agent: *
+Disallow: /
+
+# Block specific search bots explicitly
+User-agent: Googlebot
+Disallow: /
+
+User-agent: Bingbot
+Disallow: /
+
+User-agent: Slurp
+Disallow: /
+
+User-agent: DuckDuckBot
+Disallow: /
+
+User-agent: Baiduspider
+Disallow: /
+
+User-agent: YandexBot
+Disallow: /
+
+User-agent: ia_archiver
+Disallow: /
