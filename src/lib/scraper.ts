@@ -114,7 +114,51 @@ async function extractJobDetailsFromMarkdown(
   }
 }
 
-// APIFY integration
+// FIRECRAWL Search Fallback
+export async function searchJobsWithFirecrawl(
+  query: string,
+  location: string,
+  limit: number = 5
+): Promise<any[]> {
+  const apiKey = process.env.FIRECRAWL_API_KEY;
+  if (!apiKey) {
+    throw new Error('FIRECRAWL_API_KEY is not defined.');
+  }
+
+  const searchQuery = location ? `${query} jobs in ${location}` : `${query} jobs`;
+
+  const response = await fetch('https://api.firecrawl.dev/v1/search', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      query: searchQuery,
+      limit: limit,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Firecrawl Search error: ${response.status} - ${errText}`);
+  }
+
+  const json = await response.json();
+  const results = json.data || [];
+
+  return results.map((item: any) => ({
+    title: item.title || query,
+    company: item.title && item.title.includes('-') ? item.title.split('-')[1]?.trim() : 'Hiring Company',
+    location: location || 'Remote',
+    salary: 'Not specified',
+    url: item.url || '',
+    description: item.description || 'Job listing discovered via Firecrawl search.',
+    datePosted: new Date().toISOString(),
+  }));
+}
+
+// APIFY integration (with automatic Firecrawl fallback if Apify limit is reached)
 export async function searchJobsWithApify(
   query: string,
   location: string,
@@ -122,105 +166,106 @@ export async function searchJobsWithApify(
   publishedWithin24h: boolean = false
 ): Promise<any[]> {
   const token = process.env.APIFY_API_TOKEN;
-  if (!token) {
-    throw new Error('APIFY_API_TOKEN is not defined.');
-  }
 
-  try {
-    // Call the Apify Google Jobs Scraper actor run endpoint
-    // Actor: orgupdate~google-jobs-scraper
-    let searchQuery = location ? `${query} in ${location}` : query;
+  if (token) {
+    try {
+      // Call the Apify Google Jobs Scraper actor run endpoint
+      // Actor: orgupdate~google-jobs-scraper
+      let searchQuery = location ? `${query} in ${location}` : query;
 
-    const response = await fetch(`https://api.apify.com/v2/acts/orgupdate~google-jobs-scraper/runs?token=${token}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        queries: [searchQuery],
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Apify run failed with status ${response.status}`);
-    }
-
-    const runJson = await response.json();
-    const runId = runJson.data.id;
-    const defaultDatasetId = runJson.data.defaultDatasetId;
-
-    // Poll the run status until finished or max 30 seconds
-    let isFinished = false;
-    let attempts = 0;
-    const maxAttempts = 15; // 15 * 2 seconds = 30 seconds
-
-    while (!isFinished && attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      attempts++;
-
-      const checkResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${token}`);
-      if (checkResponse.ok) {
-        const checkJson = await checkResponse.json();
-        const status = checkJson.data.status;
-        if (status === 'SUCCEEDED') {
-          isFinished = true;
-        } else if (status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT') {
-          throw new Error(`Apify scraping run ended with status: ${status}`);
-        }
-      }
-    }
-
-    if (!isFinished) {
-      console.log('Apify run took too long, attempting to fetch partial dataset...');
-    }
-
-    // Fetch dataset results
-    const datasetResponse = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${token}&limit=${limit * 3}`);
-    if (!datasetResponse.ok) {
-      throw new Error(`Failed to fetch Apify dataset items: ${datasetResponse.status}`);
-    }
-
-    let items = await datasetResponse.json();
-
-    // Standardize item properties
-    items = items.map((item: any) => ({
-      title: item.job_title || item.title || item.position || query,
-      company: item.company_name || item.companyName || item.company || 'Unknown Company',
-      location: item.location || item.job_location || location || 'Remote',
-      salary: item.salary || 'Not specified',
-      url: item.URL || item.url || item.applyLink || '',
-      description: item.description || item.snippet || 'No description provided.',
-      datePosted: item.date || item.postedAt || item.posted_at || new Date().toISOString(),
-    }));
-
-    // Filter by freshness if 24h requested
-    if (publishedWithin24h && Array.isArray(items)) {
-      const recent = items.filter((item: any) => {
-        const posted = (item.datePosted || '').toLowerCase();
-        if (!posted) return true;
-        if (posted.includes('day') && !posted.includes('1 day') && !posted.includes('24 hour') && !posted.includes('today')) {
-          const dayMatch = posted.match(/(\d+)\s+day/);
-          if (dayMatch && parseInt(dayMatch[1], 10) > 1) {
-            return false;
-          }
-        }
-        if (posted.includes('week') || posted.includes('month') || posted.includes('year')) {
-          return false;
-        }
-        return true;
+      const response = await fetch(`https://api.apify.com/v2/acts/orgupdate~google-jobs-scraper/runs?token=${token}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          queries: [searchQuery],
+        }),
       });
 
-      // If strict 24h filter returns items, use them; otherwise fallback to top fresh items
-      if (recent.length > 0) {
-        items = recent;
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        const errMsg = errJson?.error?.message || response.statusText;
+        console.warn(`Apify API warning (${response.status}: ${errMsg}). Falling back to Firecrawl search...`);
+        return await searchJobsWithFirecrawl(query, location, limit);
       }
-    }
 
-    return items.slice(0, limit);
-  } catch (error) {
-    console.error('Error in Apify job scraping:', error);
-    throw error;
+      const runJson = await response.json();
+      const runId = runJson.data.id;
+      const defaultDatasetId = runJson.data.defaultDatasetId;
+
+      // Poll the run status until finished or max 30 seconds
+      let isFinished = false;
+      let attempts = 0;
+      const maxAttempts = 15;
+
+      while (!isFinished && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        attempts++;
+
+        const checkResponse = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${token}`);
+        if (checkResponse.ok) {
+          const checkJson = await checkResponse.json();
+          const status = checkJson.data.status;
+          if (status === 'SUCCEEDED') {
+            isFinished = true;
+          } else if (status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT') {
+            throw new Error(`Apify scraping run ended with status: ${status}`);
+          }
+        }
+      }
+
+      // Fetch dataset results
+      const datasetResponse = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${token}&limit=${limit * 3}`);
+      if (!datasetResponse.ok) {
+        throw new Error(`Failed to fetch Apify dataset items: ${datasetResponse.status}`);
+      }
+
+      let items = await datasetResponse.json();
+
+      // Standardize item properties
+      items = items.map((item: any) => ({
+        title: item.job_title || item.title || item.position || query,
+        company: item.company_name || item.companyName || item.company || 'Unknown Company',
+        location: item.location || item.job_location || location || 'Remote',
+        salary: item.salary || 'Not specified',
+        url: item.URL || item.url || item.applyLink || '',
+        description: item.description || item.snippet || 'No description provided.',
+        datePosted: item.date || item.postedAt || item.posted_at || new Date().toISOString(),
+      }));
+
+      // Filter by freshness if 24h requested
+      if (publishedWithin24h && Array.isArray(items)) {
+        const recent = items.filter((item: any) => {
+          const posted = (item.datePosted || '').toLowerCase();
+          if (!posted) return true;
+          if (posted.includes('day') && !posted.includes('1 day') && !posted.includes('24 hour') && !posted.includes('today')) {
+            const dayMatch = posted.match(/(\d+)\s+day/);
+            if (dayMatch && parseInt(dayMatch[1], 10) > 1) {
+              return false;
+            }
+          }
+          if (posted.includes('week') || posted.includes('month') || posted.includes('year')) {
+            return false;
+          }
+          return true;
+        });
+
+        if (recent.length > 0) {
+          items = recent;
+        }
+      }
+
+      if (items.length > 0) {
+        return items.slice(0, limit);
+      }
+    } catch (apifyError: any) {
+      console.warn('Apify search error:', apifyError.message, '--> Fallback to Firecrawl Search.');
+    }
   }
+
+  // Fallback to Firecrawl Search if Apify is unavailable or returned 0 items
+  return await searchJobsWithFirecrawl(query, location, limit);
 }
 
 // APOLLO.IO integration
