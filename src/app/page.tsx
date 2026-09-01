@@ -47,7 +47,7 @@ export default function Home() {
 
   // Scraper Form State
   const [scrapeType, setScrapeType] = useState<'smart' | 'url' | 'search'>('smart');
-  const [smartJobTitles, setSmartJobTitles] = useState<string[]>([]);
+  const [smartJobTitlesText, setSmartJobTitlesText] = useState<string>('');
   const [smartCountry, setSmartCountry] = useState<string>('');
   const [smartLoadingParams, setSmartLoadingParams] = useState<boolean>(false);
   const [scrapeUrl, setScrapeUrl] = useState<string>('');
@@ -354,7 +354,7 @@ export default function Home() {
       setScrapeMessage({ text: 'Analyzing your CV to determine optimal job titles and country...', type: 'info' });
       const res = await fetch('/api/smart-search').then(r => r.json());
       if (res.success) {
-        setSmartJobTitles(res.params.jobTitles || []);
+        setSmartJobTitlesText((res.params.jobTitles || []).join(', '));
         setSmartCountry(res.params.country || 'Remote');
         setScrapeMessage({ text: `Extracted ${res.params.jobTitles?.length || 0} target job roles for ${res.params.country}.`, type: 'success' });
       } else {
@@ -377,11 +377,16 @@ export default function Home() {
         type: 'info'
       });
 
+      const parsedTitles = smartJobTitlesText
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
       const res = await fetch('/api/smart-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobTitles: smartJobTitles,
+          jobTitles: parsedTitles,
           country: smartCountry,
           limitPerTitle: scrapeLimit,
         })
@@ -1162,8 +1167,8 @@ export default function Home() {
                                 type="text"
                                 className="form-control-full"
                                 placeholder='Click "Extract Parameters" or type e.g. "Data Analyst, BI Analyst"'
-                                value={smartJobTitles.join(', ')}
-                                onChange={(e) => setSmartJobTitles(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                                value={smartJobTitlesText}
+                                onChange={(e) => setSmartJobTitlesText(e.target.value)}
                               />
                             </div>
                             <div className="form-row-2">
