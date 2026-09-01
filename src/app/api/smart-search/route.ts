@@ -93,9 +93,13 @@ export async function POST(req: NextRequest) {
           let overlapKeywords: string[] = [];
           let suitabilityAnalysis = 'Scanned via AI Smart Search.';
 
+          let isExpired = false;
           if (cvText && description.length > 20) {
             try {
               const matchResult = await analyzeJobMatch(cvText, description);
+              if (matchResult.isExpired) {
+                isExpired = true;
+              }
               matchScore = matchResult.matchScore;
               missingKeywords = matchResult.missingKeywords;
               overlapKeywords = matchResult.overlapKeywords;
@@ -103,6 +107,11 @@ export async function POST(req: NextRequest) {
             } catch (matchErr) {
               console.error('Error auto-scoring job:', matchErr);
             }
+          }
+
+          if (isExpired) {
+            console.log(`Skipping expired posting: ${title} at ${company}`);
+            continue;
           }
 
           const newJob: Job = {

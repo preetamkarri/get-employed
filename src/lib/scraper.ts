@@ -114,7 +114,56 @@ async function extractJobDetailsFromMarkdown(
   }
 }
 
-// FIRECRAWL Search Fallback
+// Validator helper to filter out category directory pages and expired listings
+export function isIndividualJobPosting(url: string, title: string, description: string): boolean {
+  const lowerUrl = (url || '').toLowerCase();
+  const lowerTitle = (title || '').toLowerCase();
+  const lowerDesc = (description || '').toLowerCase();
+
+  // 1. Filter out known category / directory / search index URLs
+  if (
+    lowerUrl.includes('/jobs-') ||
+    lowerUrl.includes('/locations/') ||
+    lowerUrl.includes('/search') ||
+    lowerUrl.includes('/category/') ||
+    (lowerUrl.includes('linkedin.com/jobs/') && !lowerUrl.includes('/view/')) ||
+    (lowerUrl.includes('indeed.com/') && !lowerUrl.includes('/viewjob') && !lowerUrl.includes('/rc/clk'))
+  ) {
+    return false;
+  }
+
+  // 2. Filter out titles that indicate a directory/search result page
+  if (
+    lowerTitle.includes('top ') && lowerTitle.includes('jobs') ||
+    lowerTitle.includes('jobs in ') ||
+    lowerTitle.includes('search results') ||
+    lowerTitle.includes('all startup jobs')
+  ) {
+    return false;
+  }
+
+  // 3. Filter out expired job markers
+  if (
+    lowerDesc.includes('opening expired') ||
+    lowerDesc.includes('this opening expired') ||
+    lowerDesc.includes('no longer accepting applications') ||
+    lowerDesc.includes('deadline 2021') ||
+    lowerDesc.includes('deadline 2022') ||
+    lowerDesc.includes('deadline 2023') ||
+    lowerDesc.includes('deadline 2024') ||
+    lowerDesc.includes('deadline 2025') ||
+    lowerDesc.includes('deadline 3 years ago') ||
+    lowerDesc.includes('deadline 2 years ago') ||
+    lowerDesc.includes('position has been filled') ||
+    lowerDesc.includes('job closed')
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+// FIRECRAWL Search Fallback (targets active individual job postings on major ATS portals)
 export async function searchJobsWithFirecrawl(
   query: string,
   location: string,
@@ -125,7 +174,8 @@ export async function searchJobsWithFirecrawl(
     throw new Error('FIRECRAWL_API_KEY is not defined.');
   }
 
-  const searchQuery = location ? `${query} jobs in ${location}` : `${query} jobs`;
+  // Targeted search query looking for individual job view URLs on ATS platforms & direct career pages
+  const searchQuery = `"${query}" "${location}" (site:linkedin.com/jobs/view OR site:welcometothejungle.com OR site:greenhouse.io OR site:lever.co OR site:workable.com OR site:smartrecruiters.com OR site:jobteaser.com OR "apply now")`;
 
   const response = await fetch('https://api.firecrawl.dev/v1/search', {
     method: 'POST',
@@ -135,7 +185,7 @@ export async function searchJobsWithFirecrawl(
     },
     body: JSON.stringify({
       query: searchQuery,
-      limit: limit,
+      limit: limit * 3, // fetch extra candidates to account for filtering
     }),
   });
 
@@ -147,15 +197,19 @@ export async function searchJobsWithFirecrawl(
   const json = await response.json();
   const results = json.data || [];
 
-  return results.map((item: any) => ({
-    title: item.title || query,
-    company: item.title && item.title.includes('-') ? item.title.split('-')[1]?.trim() : 'Hiring Company',
-    location: location || 'Remote',
-    salary: 'Not specified',
-    url: item.url || '',
-    description: item.description || 'Job listing discovered via Firecrawl search.',
-    datePosted: new Date().toISOString(),
-  }));
+  const validJobs = results
+    .map((item: any) => ({
+      title: item.title || query,
+      company: item.title && item.title.includes('-') ? item.title.split('-')[1]?.trim() : 'Hiring Company',
+      location: location || 'Remote',
+      salary: 'Not specified',
+      url: item.url || '',
+      description: item.description || 'Job listing discovered via Firecrawl search.',
+      datePosted: new Date().toISOString(),
+    }))
+    .filter((job: any) => isIndividualJobPosting(job.url, job.title, job.description));
+
+  return validJobs.slice(0, limit);
 }
 
 // APIFY integration (with automatic Firecrawl fallback if Apify limit is reached)
@@ -233,6 +287,9 @@ export async function searchJobsWithApify(
         description: item.description || item.snippet || 'No description provided.',
         datePosted: item.date || item.postedAt || item.posted_at || new Date().toISOString(),
       }));
+
+      // Filter out directory index pages and expired postings
+      items = items.filter((item: any) => isIndividualJobPosting(item.url, item.title, item.description));
 
       // Filter by freshness if 24h requested
       if (publishedWithin24h && Array.isArray(items)) {

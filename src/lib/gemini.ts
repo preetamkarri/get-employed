@@ -15,6 +15,7 @@ export interface MatchResult {
   overlapKeywords: string[];
   suitabilityAnalysis: string;
   suggestedCVEvents: string[];
+  isExpired?: boolean;
 }
 
 export interface OutreachResult {
@@ -107,8 +108,18 @@ export async function analyzeJobMatch(cvText: string, jobDescription: string): P
     const prompt = `
       You are an expert HR Specialist and Technical Recruiter.
       Compare the candidate's CV text and the job description below.
-      Identify the matching keywords (skills, tools, methodologies), the missing keywords that the job description emphasizes but are not in the CV, and provide a match score from 0 to 100 based on alignment.
-      Also, write a professional suitability analysis and suggest specific CV changes (like bullet points or achievements to include) to improve the match.
+      
+      CRITICAL VALIDATION CHECK:
+      First, inspect the Job Description text carefully. Does it state that the job is EXPIRED, CLOSED, NO LONGER ACCEPTING APPLICATIONS, or state an expired application deadline from a past year (e.g. 2021, 2022, 2023, 2024, 2025)?
+      If the posting IS expired, closed, or a generic search results directory:
+      - Set "isExpired": true
+      - Set "matchScore": 0
+      - Set "suitabilityAnalysis": "EXPIRED/INACTIVE LISTING: This job opening closed or expired in the past and is no longer accepting applications."
+
+      Otherwise (if it is an active individual job posting):
+      - Set "isExpired": false
+      - Identify matching keywords, missing keywords, and match score (0-100).
+      - Provide a detailed suitability analysis and CV improvement suggestions.
 
       Candidate CV:
       """
@@ -120,13 +131,14 @@ export async function analyzeJobMatch(cvText: string, jobDescription: string): P
       ${jobDescription}
       """
 
-      Provide your response in JSON format matching the following structure:
+      Provide your response in JSON format:
       {
         "matchScore": number,
         "missingKeywords": string[],
         "overlapKeywords": string[],
         "suitabilityAnalysis": string,
-        "suggestedCVEvents": string[]
+        "suggestedCVEvents": string[],
+        "isExpired": boolean
       }
     `;
 
@@ -141,6 +153,7 @@ export async function analyzeJobMatch(cvText: string, jobDescription: string): P
       overlapKeywords: [],
       suitabilityAnalysis: 'Failed to analyze job match due to an error in the AI service.',
       suggestedCVEvents: [],
+      isExpired: false,
     };
   }
 }
