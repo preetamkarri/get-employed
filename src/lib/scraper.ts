@@ -14,7 +14,7 @@ export async function scrapeWithFirecrawl(url: string): Promise<{
   }
 
   try {
-    const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
+    const response = await fetch('https://api.firecrawl.dev/v2/scrape', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -118,7 +118,8 @@ async function extractJobDetailsFromMarkdown(
 export async function searchJobsWithApify(
   query: string,
   location: string,
-  limit: number = 10
+  limit: number = 10,
+  publishedWithin24h: boolean = false
 ): Promise<any[]> {
   const token = process.env.APIFY_API_TOKEN;
   if (!token) {
@@ -128,7 +129,11 @@ export async function searchJobsWithApify(
   try {
     // Call the Apify Google Jobs Scraper actor run endpoint
     // Actor: apify/google-jobs-scraper
-    const searchQuery = `${query} in ${location}`;
+    let searchQuery = location ? `${query} in ${location}` : query;
+    if (publishedWithin24h) {
+      searchQuery += ' past 24 hours';
+    }
+
     const response = await fetch(`https://api.apify.com/v2/acts/apify~google-jobs-scraper/runs?token=${token}`, {
       method: 'POST',
       headers: {
@@ -149,10 +154,10 @@ export async function searchJobsWithApify(
     const runId = runJson.data.id;
     const defaultDatasetId = runJson.data.defaultDatasetId;
 
-    // Poll the run status until finished or max 40 seconds (since it's a short run)
+    // Poll the run status until finished or max 40 seconds
     let isFinished = false;
     let attempts = 0;
-    const maxAttempts = 12; // 12 * 5 seconds = 60 seconds max wait
+    const maxAttempts = 12;
 
     while (!isFinished && attempts < maxAttempts) {
       await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -175,13 +180,33 @@ export async function searchJobsWithApify(
     }
 
     // Fetch dataset results
-    const datasetResponse = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${token}&limit=${limit}`);
+    const datasetResponse = await fetch(`https://api.apify.com/v2/datasets/${defaultDatasetId}/items?token=${token}&limit=${limit * 2}`);
     if (!datasetResponse.ok) {
       throw new Error(`Failed to fetch Apify dataset items: ${datasetResponse.status}`);
     }
 
-    const items = await datasetResponse.json();
-    return items;
+    let items = await datasetResponse.json();
+
+    // If 24h filter requested, filter items where postedAt indicates recent posting
+    if (publishedWithin24h && Array.isArray(items)) {
+      items = items.filter((item: any) => {
+        const posted = (item.postedAt || item.postedTime || item.posted_at || '').toLowerCase();
+        if (!posted) return true; // Keep if no post date specified
+        if (posted.includes('day') && !posted.includes('1 day') && !posted.includes('24 hour')) {
+          // If e.g. "3 days ago", "a week ago", filter out
+          const dayMatch = posted.match(/(\d+)\s+day/);
+          if (dayMatch && parseInt(dayMatch[1], 10) > 1) {
+            return false;
+          }
+        }
+        if (posted.includes('month') || posted.includes('year') || posted.includes('week')) {
+          return false;
+        }
+        return true;
+      });
+    }
+
+    return items.slice(0, limit);
   } catch (error) {
     console.error('Error in Apify job scraping:', error);
     throw error;

@@ -23,6 +23,79 @@ export interface OutreachResult {
   linkedinReachout: string;
 }
 
+export interface SmartSearchParams {
+  jobTitles: string[];
+  country: string;
+}
+
+/**
+ * Analyzes a CV and extracts the best-fit job titles and country for automated searching.
+ * If profile preferences (jobTitles/locations) are provided, those take priority.
+ */
+export async function extractSearchParamsFromCV(
+  cvText: string,
+  profilePreferences?: { jobTitles: string[]; locations: string[] }
+): Promise<SmartSearchParams> {
+  // If the user has manually set preferences, use those
+  if (
+    profilePreferences &&
+    profilePreferences.jobTitles.length > 0 &&
+    profilePreferences.locations.length > 0
+  ) {
+    return {
+      jobTitles: profilePreferences.jobTitles,
+      country: profilePreferences.locations[0],
+    };
+  }
+
+  try {
+    const genAI = getGeminiClient();
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-3.6-flash',
+      generationConfig: { responseMimeType: 'application/json' },
+    });
+
+    const prompt = `
+      You are an expert career advisor. Analyze the following CV/resume text and extract:
+      
+      1. **jobTitles**: The 3-5 most relevant job titles this person should search for, based on their experience, skills, and career trajectory. Be specific (e.g. "Senior Data Engineer" not just "Engineer"). Include variations (e.g. both "Data Analyst" and "Business Intelligence Analyst" if applicable).
+      
+      2. **country**: The country where the person is located or seeking work, extracted from their address, location, or context clues in the CV. Use the full country name (e.g. "Germany", "United States", "India"). If unclear, default to "Remote".
+
+      CV Text:
+      """
+      ${cvText.slice(0, 15000)}
+      """
+
+      Provide your response in JSON format:
+      {
+        "jobTitles": string[],
+        "country": string
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const parsed = JSON.parse(responseText) as SmartSearchParams;
+
+    // Merge with any partial profile preferences
+    if (profilePreferences?.jobTitles?.length) {
+      parsed.jobTitles = profilePreferences.jobTitles;
+    }
+    if (profilePreferences?.locations?.length) {
+      parsed.country = profilePreferences.locations[0];
+    }
+
+    return parsed;
+  } catch (error) {
+    console.error('Error extracting search params from CV:', error);
+    return {
+      jobTitles: ['Software Engineer'],
+      country: 'Remote',
+    };
+  }
+}
+
 export async function analyzeJobMatch(cvText: string, jobDescription: string): Promise<MatchResult> {
   try {
     const genAI = getGeminiClient();

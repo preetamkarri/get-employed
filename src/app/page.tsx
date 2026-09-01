@@ -46,11 +46,14 @@ export default function Home() {
   const [copiedTextType, setCopiedTextType] = useState<string | null>(null);
 
   // Scraper Form State
-  const [scrapeType, setScrapeType] = useState<'url' | 'search'>('url');
+  const [scrapeType, setScrapeType] = useState<'smart' | 'url' | 'search'>('smart');
+  const [smartJobTitles, setSmartJobTitles] = useState<string[]>([]);
+  const [smartCountry, setSmartCountry] = useState<string>('');
+  const [smartLoadingParams, setSmartLoadingParams] = useState<boolean>(false);
   const [scrapeUrl, setScrapeUrl] = useState<string>('');
   const [scrapeQuery, setScrapeQuery] = useState<string>('');
   const [scrapeLocation, setScrapeLocation] = useState<string>('');
-  const [scrapeLimit, setScrapeLimit] = useState<number>(5);
+  const [scrapeLimit, setScrapeLimit] = useState<number>(3);
   const [scrapeLoading, setScrapeLoading] = useState<boolean>(false);
   const [scrapeMessage, setScrapeMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -341,6 +344,63 @@ export default function Home() {
       console.error(err);
     } finally {
       setApolloLoading(false);
+    }
+  };
+
+  // AI Smart Search Handlers
+  const handleFetchSmartParams = async () => {
+    try {
+      setSmartLoadingParams(true);
+      setScrapeMessage({ text: 'Analyzing your CV to determine optimal job titles and country...', type: 'info' });
+      const res = await fetch('/api/smart-search').then(r => r.json());
+      if (res.success) {
+        setSmartJobTitles(res.params.jobTitles || []);
+        setSmartCountry(res.params.country || 'Remote');
+        setScrapeMessage({ text: `Extracted ${res.params.jobTitles?.length || 0} target job roles for ${res.params.country}.`, type: 'success' });
+      } else {
+        setScrapeMessage({ text: res.error || 'Failed to extract CV search parameters.', type: 'error' });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setScrapeMessage({ text: err.message || 'Error analyzing CV.', type: 'error' });
+    } finally {
+      setSmartLoadingParams(false);
+    }
+  };
+
+  const handleSmartSearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setScrapeLoading(true);
+      setScrapeMessage({
+        text: '🤖 Running AI Smart Search on Google Jobs (filtering past 24h & auto-scoring CV match)...',
+        type: 'info'
+      });
+
+      const res = await fetch('/api/smart-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobTitles: smartJobTitles,
+          country: smartCountry,
+          limitPerTitle: scrapeLimit,
+        })
+      }).then(r => r.json());
+
+      if (res.success) {
+        setScrapeMessage({
+          text: `✨ Smart Search complete! Imported ${res.importedCount} new fresh job listings (posted in last 24h) with CV match scores.`,
+          type: 'success'
+        });
+        refreshJobs();
+      } else {
+        setScrapeMessage({ text: res.error || 'Smart search failed.', type: 'error' });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setScrapeMessage({ text: err.message || 'Error executing smart search.', type: 'error' });
+    } finally {
+      setScrapeLoading(false);
     }
   };
 
@@ -1033,7 +1093,7 @@ export default function Home() {
             <header className="header">
               <div>
                 <h1 className="header-title">Job Sourcing & Scraper Hub</h1>
-                <p className="header-subtitle">Bulk import job descriptions using search parameters, or scrape custom career pages.</p>
+                <p className="header-subtitle">AI Smart Search scans your CV to extract matching roles and country, then fetches jobs posted in the last 24 hours.</p>
               </div>
             </header>
 
@@ -1042,6 +1102,15 @@ export default function Home() {
               {/* Form Controls */}
               <div className="glass-panel" style={{ padding: '24px' }}>
                 <div className="tabs-header">
+                  <button 
+                    className={`tab-btn ${scrapeType === 'smart' ? 'active' : ''}`}
+                    onClick={() => {
+                      setScrapeType('smart');
+                      setScrapeMessage(null);
+                    }}
+                  >
+                    🤖 AI Smart Search (24h)
+                  </button>
                   <button 
                     className={`tab-btn ${scrapeType === 'url' ? 'active' : ''}`}
                     onClick={() => {
@@ -1058,12 +1127,78 @@ export default function Home() {
                       setScrapeMessage(null);
                     }}
                   >
-                    Bulk Scrape Search
+                    Custom Search
                   </button>
                 </div>
 
-                <form onSubmit={handleScraperSubmit} className="form-grid">
-                  {scrapeType === 'url' ? (
+                <form onSubmit={scrapeType === 'smart' ? handleSmartSearchSubmit : handleScraperSubmit} className="form-grid">
+                  {scrapeType === 'smart' ? (
+                    <>
+                      <div className="glass-panel" style={{ padding: '16px', background: 'rgba(99, 102, 241, 0.05)', borderColor: 'rgba(99, 102, 241, 0.15)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--primary)' }}>
+                            CV Profile: {profile?.cvFileName ? profile.cvFileName : 'No CV Uploaded'}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                            onClick={handleFetchSmartParams}
+                            disabled={smartLoadingParams || !profile?.cvText}
+                          >
+                            {smartLoadingParams ? 'Analyzing...' : '⚡ Extract Parameters from CV'}
+                          </button>
+                        </div>
+
+                        {!profile?.cvText ? (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--warning)', marginTop: '8px' }}>
+                            ⚠️ Please upload your CV in the Profile section first so AI can analyze your roles and country.
+                          </div>
+                        ) : (
+                          <div className="form-grid" style={{ gap: '12px' }}>
+                            <div>
+                              <label className="form-label">Target Job Roles (auto-extracted from CV)</label>
+                              <input 
+                                type="text"
+                                className="form-control-full"
+                                placeholder='Click "Extract Parameters" or type e.g. "Data Analyst, BI Analyst"'
+                                value={smartJobTitles.join(', ')}
+                                onChange={(e) => setSmartJobTitles(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                              />
+                            </div>
+                            <div className="form-row-2">
+                              <div>
+                                <label className="form-label">Target Country (from CV location)</label>
+                                <input 
+                                  type="text"
+                                  className="form-control-full"
+                                  placeholder="e.g. Germany, United States, Remote"
+                                  value={smartCountry}
+                                  onChange={(e) => setSmartCountry(e.target.value)}
+                                />
+                              </div>
+                              <div>
+                                <label className="form-label">Max listings per role</label>
+                                <select 
+                                  className="form-control-full"
+                                  value={scrapeLimit}
+                                  onChange={(e) => setScrapeLimit(Number(e.target.value))}
+                                >
+                                  <option value={3}>3 listings / role</option>
+                                  <option value={5}>5 listings / role</option>
+                                  <option value={10}>10 listings / role</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        🔒 <strong>24-Hour Filter Active:</strong> Only jobs posted in the last 24 hours will be fetched and auto-matched against your CV score.
+                      </p>
+                    </>
+                  ) : scrapeType === 'url' ? (
                     <div>
                       <label className="form-label">Job Description Webpage URL</label>
                       <input 
@@ -1093,10 +1228,10 @@ export default function Home() {
                           />
                         </div>
                         <div>
-                          <label className="form-label">Location</label>
+                          <label className="form-label">Location / Country</label>
                           <input 
                             type="text" 
-                            placeholder="e.g. Remote, Dallas TX"
+                            placeholder="e.g. Germany, Remote"
                             className="form-control-full"
                             value={scrapeLocation}
                             onChange={(e) => setScrapeLocation(e.target.value)}
@@ -1114,9 +1249,6 @@ export default function Home() {
                           <option value={5}>5 job listings</option>
                           <option value={10}>10 job listings</option>
                         </select>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                          Fires an Apify Actor to scan Google Jobs / Indeed, fetching listings posted within the last 24-48 hours.
-                        </p>
                       </div>
                     </>
                   )}
@@ -1140,10 +1272,10 @@ export default function Home() {
                     type="submit" 
                     className="btn btn-primary"
                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                    disabled={scrapeLoading}
+                    disabled={scrapeLoading || (scrapeType === 'smart' && !profile?.cvText)}
                   >
                     {scrapeLoading ? <RefreshCw size={16} className="glow-active" style={{ animation: 'spin 1s linear infinite' }} /> : <Play size={16} />}
-                    {scrapeLoading ? 'Scraping live data...' : scrapeType === 'url' ? 'Import Job Listing' : 'Execute Job Search'}
+                    {scrapeLoading ? 'Executing Smart Search...' : scrapeType === 'smart' ? '🚀 Launch AI Smart Job Search (Last 24h)' : scrapeType === 'url' ? 'Import Job Listing' : 'Execute Job Search'}
                   </button>
                 </form>
               </div>
